@@ -3,8 +3,9 @@ import {
   Sprout, Cloud, Droplets, TrendingUp, LogOut, User as UserIcon,
   History as HistoryIcon, LayoutDashboard, CheckCircle2, AlertTriangle,
   XCircle, ArrowRight, MapPin, Wheat, Lock, Mail, Plus,
-  Volume2, Mic, FileText, Download, CheckSquare, Sparkles, Thermometer, Info, Menu, X
+  Volume2, Mic, FileText, Download, CheckSquare, Sparkles, Thermometer, Info, Menu, X, Trash2, ClipboardCheck
 } from "lucide-react";
+import axios from "axios";
 
 // Services & Utils
 import { STRINGS, CROPS_I18N, IRRIGATION_I18N, getLocalizedCrop, getLocalizedLocation } from "./services/translationService";
@@ -538,20 +539,98 @@ function Dashboard({ user, history, goCheck, lang, documents, setDocuments, apiK
   );
 }
 
+// New fields localization helper
+const NEW_FIELDS_I18N = {
+  en: {
+    phoneNumber: "Phone Number",
+    district: "District",
+    state: "State",
+    annualIncome: "Annual Income (₹ / Year)",
+    existingLoans: "Outstanding Existing Loans (₹)",
+    creditHistory: "Credit Repayment History",
+    requiredLoanAmount: "Required Loan Amount (₹)",
+    creditGood: "Good (No defaults, regular repayments)",
+    creditMedium: "Medium (Occasional delay, no defaults)",
+    creditPoor: "Poor (Past default / Write-off / High risk)",
+    phonePlaceholder: "e.g. 9876543210",
+    districtPlaceholder: "e.g. Ludhiana",
+    statePlaceholder: "e.g. Punjab",
+    incomePlaceholder: "e.g. 350000",
+    loansPlaceholder: "e.g. 50000",
+    requiredPlaceholder: "e.g. 150000",
+    deleteConfirm: "Are you sure you want to delete this assessment?",
+    deleteFailed: "Could not delete history record.",
+    saving: "Saving record...",
+    saveSuccess: "Saved to secure database."
+  },
+  hi: {
+    phoneNumber: "फ़ोन नंबर",
+    district: "जिला",
+    state: "राज्य",
+    annualIncome: "वार्षिक आय (₹ / वर्ष)",
+    existingLoans: "वर्तमान पुराना कर्ज (₹)",
+    creditHistory: "पिछला लोन रिकॉर्ड (क्रेडिट इतिहास)",
+    requiredLoanAmount: "लोन की आवश्यकता (₹)",
+    creditGood: "अच्छा (समय पर भुगतान, कोई बकाया नहीं)",
+    creditMedium: "मध्यम (देरी से भुगतान, कोई चूक नहीं)",
+    creditPoor: "खराब (बकाया राशि / डिफॉल्ट / उच्च जोखिम)",
+    phonePlaceholder: "जैसे: 9876543210",
+    districtPlaceholder: "जैसे: लुधियाना",
+    statePlaceholder: "जैसे: पंजाब",
+    incomePlaceholder: "जैसे: 350000",
+    loansPlaceholder: "जैसे: 50000",
+    requiredPlaceholder: "जैसे: 150000",
+    deleteConfirm: "क्या आप इस रिकॉर्ड को हटाना चाहते हैं?",
+    deleteFailed: "रिकॉर्ड हटाने में त्रुटि हुई।",
+    saving: "रिकॉर्ड सहेज रहे हैं...",
+    saveSuccess: "सुरक्षित डेटाबेस में सहेजा गया।"
+  },
+  bn: {
+    phoneNumber: "ফোন নম্বর",
+    district: "জেলা",
+    state: "রাজ্য",
+    annualIncome: "বার্ষিক আয় (₹ / বছর)",
+    existingLoans: "বর্তমান বকেয়া ঋণ (₹)",
+    creditHistory: "ক্রেডিট হিস্ট্রি (ঋণ পরিশোধের রেকর্ড)",
+    requiredLoanAmount: "প্রয়োজনীয় ঋণের পরিমাণ (₹)",
+    creditGood: "ভালো (সময়মতো পরিশোধ, কোনো বকেয়া নেই)",
+    creditMedium: "মাঝারি (মাঝে মাঝে দেরি, কোনো খেলাপি নেই)",
+    creditPoor: "খারাপ (পূর্ববর্তী খেলাপি / উচ্চ ঝুঁকি)",
+    phonePlaceholder: "যেমন: 9876543210",
+    districtPlaceholder: "যেমন: লুধিয়ানা",
+    statePlaceholder: "যেমন: পাঞ্জাব",
+    incomePlaceholder: "যেমন: 350000",
+    loansPlaceholder: "যেমন: 50000",
+    requiredPlaceholder: "যেমন: 150000",
+    deleteConfirm: "আপনি কি এই মূল্যায়ন রেকর্ডটি মুছে ফেলতে চান?",
+    deleteFailed: "রেকর্ডটি মোছা যায়নি।",
+    saving: "সংরক্ষণ করা হচ্ছে...",
+    saveSuccess: "ডাটাবেসে সফলভাবে সংরক্ষিত।"
+  }
+};
+
 // ---------- Assessment Form (Inputs + Voice Parsing) ----------
 function CheckForm({ onSubmit, lang, documents, apiKey }) {
   const t = STRINGS[lang] || STRINGS.en;
+  const f = NEW_FIELDS_I18N[lang] || NEW_FIELDS_I18N.en;
   const crops = CROPS_I18N[lang] || CROPS_I18N.en;
   const irrigationList = IRRIGATION_I18N[lang] || IRRIGATION_I18N.en;
   const ink = "#1B2B20";
   const forest = "#1F3D2B";
   const gold = "#D4A017";
 
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [location, setLocation] = useState("");
+  const [district, setDistrict] = useState("");
+  const [state, setState] = useState("");
   const [crop, setCrop] = useState(crops[0]);
   const [land, setLand] = useState("");
   const [harvest, setHarvest] = useState("");
   const [irrigation, setIrrigation] = useState(irrigationList[2].id);
+  const [annualIncome, setAnnualIncome] = useState("");
+  const [existingLoans, setExistingLoans] = useState("0");
+  const [creditHistory, setCreditHistory] = useState("Good");
+  const [requiredLoanAmount, setRequiredLoanAmount] = useState("");
 
   // Weather Geocode & Fetch Loading States
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -582,7 +661,7 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!location || !land || !harvest) return;
+    if (!location || !land || !harvest || !phoneNumber || !district || !state || !annualIncome || !requiredLoanAmount) return;
 
     setWeatherLoading(true);
     setLoadingText(t.fetchingWeather);
@@ -598,7 +677,21 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
     }
 
     setWeatherLoading(false);
-    onSubmit({ location, crop, land, harvest, irrigation, weather: weatherResult });
+    onSubmit({
+      location,
+      crop,
+      land,
+      harvest,
+      irrigation,
+      phoneNumber,
+      district,
+      state,
+      annualIncome,
+      existingLoans,
+      creditHistory,
+      requiredLoanAmount,
+      weather: weatherResult
+    });
   };
 
   if (weatherLoading) {
@@ -639,19 +732,45 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
       <div className="grid-1-2">
         <Card>
           <form onSubmit={submit}>
-            <Field label={t.village} icon={<MapPin size={13} />}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input style={inputStyle} required value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t.villagePlaceholder || "e.g. Ludhiana, Punjab"} />
-                <IconButton type="button" onClick={locListening ? stopLocMic : startLocMic} title={t.speak} active={locListening}>
-                  <Mic size={16} />
-                </IconButton>
-              </div>
-            </Field>
+            {/* Personal & Farm Location */}
+            <div style={{ fontWeight: 700, fontSize: 15, color: forest, marginBottom: 16, borderBottom: "2px solid #E4E0D4", paddingBottom: 6, fontFamily: "Space Grotesk, sans-serif" }}>
+              1. Personal & Location Details
+            </div>
+            
+            <div className="grid-2col-equal">
+              <Field label={f.phoneNumber} icon={<UserIcon size={13} />}>
+                <input style={inputStyle} required type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder={f.phonePlaceholder} />
+              </Field>
+              <Field label={t.village} icon={<MapPin size={13} />}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input style={inputStyle} required value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t.villagePlaceholder || "e.g. Ludhiana, Punjab"} />
+                  <IconButton type="button" onClick={locListening ? stopLocMic : startLocMic} title={t.speak} active={locListening}>
+                    <Mic size={16} />
+                  </IconButton>
+                </div>
+              </Field>
+            </div>
+
+            <div className="grid-2col-equal">
+              <Field label={f.district} icon={<MapPin size={13} />}>
+                <input style={inputStyle} required value={district} onChange={(e) => setDistrict(e.target.value)} placeholder={f.districtPlaceholder} />
+              </Field>
+              <Field label={f.state} icon={<MapPin size={13} />}>
+                <input style={inputStyle} required value={state} onChange={(e) => setState(e.target.value)} placeholder={f.statePlaceholder} />
+              </Field>
+            </div>
+
+            {/* Farm Diagnostics */}
+            <div style={{ fontWeight: 700, fontSize: 15, color: forest, marginTop: 12, marginBottom: 16, borderBottom: "2px solid #E4E0D4", paddingBottom: 6, fontFamily: "Space Grotesk, sans-serif" }}>
+              2. Agricultural Telemetries
+            </div>
+
             <Field label={t.cropType} icon={<Sprout size={13} />}>
               <select style={inputStyle} value={crop} onChange={(e) => setCrop(e.target.value)}>
                 {crops.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
+
             <div className="grid-2col-equal">
               <Field label={t.landSize} icon={<Wheat size={13} />}>
                 <input style={inputStyle} required type="number" step="any" min="0.1" value={land} onChange={(e) => setLand(e.target.value)} placeholder="3" />
@@ -660,12 +779,41 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
                 <input style={inputStyle} required type="number" min="0" value={harvest} onChange={(e) => setHarvest(e.target.value)} placeholder="75" />
               </Field>
             </div>
+
             <Field label={t.irrigationMethod} icon={<Droplets size={13} />}>
               <select style={inputStyle} value={irrigation} onChange={(e) => setIrrigation(e.target.value)}>
                 {irrigationList.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
               </select>
             </Field>
-            <PrimaryButton type="submit" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}>
+
+            {/* Financial Parameters */}
+            <div style={{ fontWeight: 700, fontSize: 15, color: forest, marginTop: 12, marginBottom: 16, borderBottom: "2px solid #E4E0D4", paddingBottom: 6, fontFamily: "Space Grotesk, sans-serif" }}>
+              3. Financial & Debt Profiling
+            </div>
+
+            <div className="grid-2col-equal">
+              <Field label={f.annualIncome} icon={<TrendingUp size={13} />}>
+                <input style={inputStyle} required type="number" min="0" value={annualIncome} onChange={(e) => setAnnualIncome(e.target.value)} placeholder={f.incomePlaceholder} />
+              </Field>
+              <Field label={f.requiredLoanAmount} icon={<TrendingUp size={13} />}>
+                <input style={inputStyle} required type="number" min="1" value={requiredLoanAmount} onChange={(e) => setRequiredLoanAmount(e.target.value)} placeholder={f.requiredPlaceholder} />
+              </Field>
+            </div>
+
+            <div className="grid-2col-equal">
+              <Field label={f.existingLoans} icon={<TrendingUp size={13} />}>
+                <input style={inputStyle} required type="number" min="0" value={existingLoans} onChange={(e) => setExistingLoans(e.target.value)} placeholder={f.loansPlaceholder} />
+              </Field>
+              <Field label={f.creditHistory} icon={<ClipboardCheck size={13} />}>
+                <select style={inputStyle} value={creditHistory} onChange={(e) => setCreditHistory(e.target.value)}>
+                  <option value="Good">{f.creditGood}</option>
+                  <option value="Medium">{f.creditMedium}</option>
+                  <option value="Poor">{f.creditPoor}</option>
+                </select>
+              </Field>
+            </div>
+
+            <PrimaryButton type="submit" style={{ width: "100%", justifyContent: "center", marginTop: 16 }}>
               <Cloud size={16} /> {t.fetchGenerate}
             </PrimaryButton>
           </form>
@@ -755,7 +903,7 @@ function ResultView({ result, onBack, onSave, lang, documents }) {
 }
 
 // ---------- Assessment History ----------
-function HistoryView({ history, goCheck, lang, documents }) {
+function HistoryView({ history, goCheck, lang, documents, onDeleteHistory }) {
   const t = STRINGS[lang] || STRINGS.en;
   const ink = "#1B2B20";
   const forest = "#1F3D2B";
@@ -783,17 +931,17 @@ function HistoryView({ history, goCheck, lang, documents }) {
           {history.map((h, i) => {
             const riskColor = h.risk === "Low" ? "#3B7A57" : h.risk === "Medium" ? "#C98A2B" : "#B4483B";
             return (
-              <Card key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 18, transition: "transform 0.15s" }}>
+              <Card key={h.id || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 18, transition: "transform 0.15s" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                   <div style={{ width: 46, height: 46, borderRadius: 10, background: "#F7F5EF", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, color: forest, fontSize: 16, border: "1px solid #E4E0D4" }}>
                     {h.score}
                   </div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14.5, color: ink, fontFamily: "Space Grotesk, sans-serif" }}>
-                      {getLocalizedCrop(h.crop, lang)} · {getLocalizedLocation(h.location, lang)}
+                      {getLocalizedCrop(h.crop || h.cropType, lang)} · {getLocalizedLocation(h.location || h.village, lang)}
                     </div>
                     <div style={{ color: "#8a8a7c", fontSize: 12, marginTop: 2 }}>
-                      {h.date} · {h.land} {t.acres} · {h.harvest} {t.quintals || "quintals"}
+                      {h.date || new Date(h.timestamp).toLocaleDateString()} · {h.land || h.farmSize} {t.acres} · {h.harvest} {t.quintals || "quintals"}
                     </div>
                   </div>
                 </div>
@@ -808,6 +956,13 @@ function HistoryView({ history, goCheck, lang, documents }) {
                     style={{ border: "1px solid #E4E0D4" }}
                   >
                     <Download size={15} />
+                  </IconButton>
+                  <IconButton
+                    onClick={() => onDeleteHistory && onDeleteHistory(h.id, i)}
+                    title="Delete Record"
+                    style={{ border: "1px solid #F0C4C4", color: "#B4483B" }}
+                  >
+                    <Trash2 size={15} />
                   </IconButton>
                 </div>
               </Card>
@@ -852,17 +1007,26 @@ export default function App() {
     };
   });
 
-  // Previous checks loaded from localstorage
-  const [history, setHistory] = useState(() => {
+  const API_BASE = "http://localhost:5000/api";
+
+  // Previous checks loaded from localstorage / backend
+  const [history, setHistory] = useState([]);
+  const [pendingResult, setPendingResult] = useState(null);
+
+  // Global Accessibility Font Scale
+  const [fontScale, setFontScale] = useState(() => {
+    const saved = localStorage.getItem("agriscore_font_scale");
+    return saved ? parseFloat(saved) : 1.0;
+  });
+
+  const loadSeedHistory = () => {
     const saved = localStorage.getItem("agriscore_history");
     if (saved) {
       try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error(e);
-      }
+        setHistory(JSON.parse(saved));
+        return;
+      } catch (e) {}
     }
-    // Seed mock data for new users to demonstrate the trend sparkline chart immediately
     const mockHistory = [
       {
         score: 78,
@@ -920,7 +1084,6 @@ export default function App() {
       }
     ];
 
-    // Hydrate reasons and suggestions inside seed data
     mockHistory.forEach(item => {
       const computed = computeScore({
         location: item.location,
@@ -928,31 +1091,19 @@ export default function App() {
         land: item.land,
         harvest: item.harvest,
         irrigation: item.irrigation,
-        tickedCount: 3, // docs ticked
+        tickedCount: 3,
         weather: item.weatherData,
-        lang: "hi" // Seed in current default language
+        lang
       });
       item.reasons = computed.reasons;
       item.suggestions = computed.suggestions;
     });
 
+    setHistory(mockHistory);
     localStorage.setItem("agriscore_history", JSON.stringify(mockHistory));
-    return mockHistory;
-  });
-
-  const [pendingResult, setPendingResult] = useState(null);
-
-  // Global Accessibility Font Scale
-  const [fontScale, setFontScale] = useState(() => {
-    const saved = localStorage.getItem("agriscore_font_scale");
-    return saved ? parseFloat(saved) : 1.0;
-  });
+  };
 
   // Sync state modifications to localstorage
-  useEffect(() => {
-    localStorage.setItem("agriscore_history", JSON.stringify(history));
-  }, [history]);
-
   useEffect(() => {
     localStorage.setItem("agriscore_documents", JSON.stringify(documents));
   }, [documents]);
@@ -961,27 +1112,123 @@ export default function App() {
     localStorage.setItem("agriscore_font_scale", fontScale.toString());
   }, [fontScale]);
 
-  const handleCheckSubmit = (form) => {
+  // Load history from Firestore backend on mount
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/farmers`);
+        if (res.data && res.data.success && res.data.data.length > 0) {
+          setHistory(res.data.data);
+        } else {
+          loadSeedHistory();
+        }
+      } catch (err) {
+        console.warn("Failed to fetch history from backend. Loading local seed data.", err);
+        loadSeedHistory();
+      }
+    };
+    fetchHistory();
+  }, [lang]);
+
+  const handleCheckSubmit = async (form) => {
     const tickedCount = Object.values(documents).filter(Boolean).length;
-    const scoreResult = computeScore({ ...form, tickedCount, lang });
     
-    setPendingResult({
-      ...scoreResult,
-      ...form,
-      // Embed farmer identity fields directly so PDF always has them
-      farmerName: user?.name || "",
-      farmerEmail: user?.email || "",
-      weatherData: form.weather && form.weather.success ? form.weather : null,
-      date: new Date().toLocaleDateString()
-    });
-    setPage("result");
+    try {
+      const payload = {
+        ...form,
+        tickedCount,
+        lang,
+        farmerName: user?.name || "",
+        farmerEmail: user?.email || ""
+      };
+
+      const res = await axios.post(`${API_BASE}/score`, payload);
+      
+      if (res.data && res.data.success) {
+        setPendingResult({
+          ...res.data,
+          ...form,
+          farmerName: user?.name || "",
+          farmerEmail: user?.email || "",
+          weatherData: form.weather && form.weather.success ? form.weather : null,
+          date: new Date().toLocaleDateString()
+        });
+        setPage("result");
+      }
+    } catch (err) {
+      console.error("API score calculation failed. Falling back to local calculator.", err);
+      // Fallback to local calculation so the app never breaks
+      const scoreResult = computeScore({ ...form, tickedCount, lang });
+      setPendingResult({
+        ...scoreResult,
+        ...form,
+        farmerName: user?.name || "",
+        farmerEmail: user?.email || "",
+        weatherData: form.weather && form.weather.success ? form.weather : null,
+        date: new Date().toLocaleDateString()
+      });
+      setPage("result");
+    }
   };
 
-  const saveToHistory = () => {
+  const saveToHistory = async () => {
     if (pendingResult) {
-      setHistory((h) => [pendingResult, ...h]);
+      try {
+        const tickedDocsList = Object.keys(documents).filter(key => documents[key]);
+        const payload = {
+          farmerName: pendingResult.farmerName || user?.name || "Unknown Farmer",
+          phoneNumber: pendingResult.phoneNumber || "",
+          village: pendingResult.location || "",
+          district: pendingResult.district || "",
+          state: pendingResult.state || "",
+          farmSize: parseFloat(pendingResult.land) || 0,
+          cropType: pendingResult.crop || "",
+          annualIncome: parseFloat(pendingResult.annualIncome) || 0,
+          existingLoans: parseFloat(pendingResult.existingLoans) || 0,
+          creditHistory: pendingResult.creditHistory || "Good",
+          requiredLoanAmount: parseFloat(pendingResult.requiredLoanAmount) || 0,
+          uploadedDocuments: tickedDocsList,
+          score: pendingResult.score,
+          risk: pendingResult.risk,
+          eligibility: pendingResult.eligibility,
+          recommendations: pendingResult.recommendations || [],
+          reasons: pendingResult.reasons || [],
+          suggestions: pendingResult.suggestions || [],
+          harvest: parseFloat(pendingResult.harvest) || 0,
+          irrigation: pendingResult.irrigation || "canal",
+          weather: pendingResult.weatherData || null,
+          date: pendingResult.date
+        };
+
+        const res = await axios.post(`${API_BASE}/farmers`, payload);
+        if (res.data && res.data.success) {
+          setHistory((h) => [res.data.data, ...h]);
+        }
+      } catch (err) {
+        console.error("Failed to save record to backend. Saving locally instead.", err);
+        setHistory((h) => [pendingResult, ...h]);
+      }
     }
     setPage("dashboard");
+  };
+
+  const deleteHistory = async (id, index) => {
+    const fDict = NEW_FIELDS_I18N[lang] || NEW_FIELDS_I18N.en;
+    if (!window.confirm(fDict.deleteConfirm)) return;
+
+    if (id && typeof id === "string" && id.length > 5) {
+      try {
+        const res = await axios.delete(`${API_BASE}/farmers/${id}`);
+        if (res.data && res.data.success) {
+          setHistory((h) => h.filter((item) => item.id !== id));
+        }
+      } catch (err) {
+        console.error("Failed to delete from backend.", err);
+        alert(fDict.deleteFailed);
+      }
+    } else {
+      setHistory((h) => h.filter((_, idx) => idx !== index));
+    }
   };
 
   const handleSaveApiKey = (key) => {
@@ -1065,6 +1312,7 @@ export default function App() {
           goCheck={() => setPage("check")}
           lang={lang}
           documents={documents}
+          onDeleteHistory={deleteHistory}
         />
       )}
     </div>

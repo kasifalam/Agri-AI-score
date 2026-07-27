@@ -451,18 +451,20 @@ export async function downloadReport(item, documents, lang) {
       doc.setFont("helvetica");
     }
 
-    // 3. Re-compute score logic in selected language to align reasons and suggestions
+    // 3. Use pre-calculated backend scores if available, otherwise fallback to local calculation
     const tickedCount = Object.values(documents).filter(Boolean).length;
-    const finalResult = computeScore({
-      location: item.location,
-      crop: item.crop,
-      land: item.land,
-      harvest: item.harvest,
-      irrigation: item.irrObj?.id || item.irrigation,
-      tickedCount,
-      weather: item.weatherData || { success: false },
-      lang
-    });
+    const finalResult = (item.score !== undefined && item.risk !== undefined && item.reasons !== undefined)
+      ? item
+      : computeScore({
+          location: item.location,
+          crop: item.crop,
+          land: item.land,
+          harvest: item.harvest,
+          irrigation: item.irrObj?.id || item.irrigation,
+          tickedCount,
+          weather: item.weatherData || { success: false },
+          lang
+        });
 
     const forest = "#1F3D2B";
     const gold = "#D4A017";
@@ -524,7 +526,7 @@ export async function downloadReport(item, documents, lang) {
     const rawLoc        = item.location || item.village || item.district || "";
     const farmerLoc     = safeStr(getLocalizedLocation(rawLoc, lang) || rawLoc);
     const farmerCrop    = safeStr(getLocalizedCrop(item.crop, lang) || item.crop);
-    const farmerLand    = item.land    ? `${item.land} ${t.acres}`               : na;
+    const farmerLand    = item.land || item.farmSize ? `${item.land || item.farmSize} ${t.acres}` : na;
     const farmerHarvest = item.harvest ? `${item.harvest} ${t.quintals || "quintals"}` : na;
 
     const irrListCurrent = IRRIGATION_I18N[lang] || IRRIGATION_I18N.en;
@@ -533,10 +535,19 @@ export async function downloadReport(item, documents, lang) {
     ) || irrListCurrent[2];
     const farmerIrr = safeStr(irrObjCurrent?.label);
 
+    // Resolve financial parameters
+    const farmerPhone = safeStr(item.phoneNumber);
+    const farmerDistrict = safeStr(item.district || item.location);
+    const farmerState = safeStr(item.state);
+    const farmerIncome = item.annualIncome !== undefined ? `Rs. ${item.annualIncome}` : na;
+    const farmerLoans = item.existingLoans !== undefined ? `Rs. ${item.existingLoans}` : na;
+    const farmerCredit = safeStr(item.creditHistory);
+    const farmerReqAmount = item.requiredLoanAmount !== undefined ? `Rs. ${item.requiredLoanAmount}` : na;
+
     // Diagnostic: confirm values in browser console before drawing
     console.log("[AgriScore PDF] Profile field values:", {
       farmerName, farmerEmail, farmerLoc, farmerCrop,
-      farmerLand, farmerHarvest, farmerIrr,
+      farmerLand, farmerHarvest, farmerIrr, farmerPhone, farmerIncome,
       rawUser: user, rawItem: { location: item.location, crop: item.crop, land: item.land, harvest: item.harvest }
     });
 
@@ -546,30 +557,46 @@ export async function downloadReport(item, documents, lang) {
     y += 8;
     doc.setFontSize(9);
 
-    // Row 1: Farmer Name | Village / District
+    // Row 1: Farmer Name | Phone Number
     doc.text(p.lblFarmerName,           COL1_LBL, y);
     doc.text(trunc(farmerName, 30),     COL1_VAL, y);
-    doc.text(p.lblLocation,             COL2_LBL, y);
-    doc.text(trunc(farmerLoc, 28),      COL2_VAL, y);
+    doc.text("Phone Number:",           COL2_LBL, y);
+    doc.text(trunc(farmerPhone, 28),    COL2_VAL, y);
 
-    y += 6;
+    y += 5.5;
     // Row 2: Email | Crop
     doc.text(p.lblEmail,                COL1_LBL, y);
     doc.text(trunc(farmerEmail, 30),    COL1_VAL, y);
     doc.text(p.lblCrop,                 COL2_LBL, y);
     doc.text(trunc(farmerCrop, 28),     COL2_VAL, y);
 
-    y += 6;
-    // Row 3: Land Area | Irrigation
+    y += 5.5;
+    // Row 3: Village/Location | District/State
+    doc.text(p.lblLocation,             COL1_LBL, y);
+    doc.text(trunc(farmerLoc, 30),      COL1_VAL, y);
+    doc.text("District / State:",       COL2_LBL, y);
+    doc.text(trunc(`${farmerDistrict}, ${farmerState}`, 28), COL2_VAL, y);
+
+    y += 5.5;
+    // Row 4: Land Area | Irrigation
     doc.text(p.lblArea,                 COL1_LBL, y);
     doc.text(trunc(farmerLand, 30),     COL1_VAL, y);
     doc.text(p.lblIrrigation,           COL2_LBL, y);
     doc.text(trunc(farmerIrr, 28),      COL2_VAL, y);
 
-    y += 6;
-    // Row 4: Harvest (full width left column)
+    y += 5.5;
+    // Row 5: Harvest | Required Loan
     doc.text(p.lblHarvest,              COL1_LBL, y);
     doc.text(trunc(farmerHarvest, 30),  COL1_VAL, y);
+    doc.text("Required Loan Amount:",   COL2_LBL, y);
+    doc.text(trunc(farmerReqAmount, 28), COL2_VAL, y);
+
+    y += 5.5;
+    // Row 6: Annual Income | Debt & Credit
+    doc.text("Annual Income:",          COL1_LBL, y);
+    doc.text(trunc(farmerIncome, 30),   COL1_VAL, y);
+    doc.text("Debt & Credit History:",  COL2_LBL, y);
+    doc.text(trunc(`${farmerLoans} (${farmerCredit})`, 28), COL2_VAL, y);
 
     // --- Section 2: Credit Score Summary ---
     y += 12;
@@ -700,7 +727,11 @@ export async function downloadReport(item, documents, lang) {
     y += 8;
     doc.setFontSize(8);
     
-    finalResult.suggestions.forEach((sug, idx) => {
+    const suggestionsToRender = (finalResult.recommendations && finalResult.recommendations.length > 0)
+      ? [...finalResult.suggestions, ...finalResult.recommendations]
+      : finalResult.suggestions;
+
+    suggestionsToRender.forEach((sug, idx) => {
       const bulletText = `${idx + 1}. ${sug}`;
       const textLines = doc.splitTextToSize(bulletText, 175);
       doc.text(textLines, 15, y);
