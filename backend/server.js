@@ -86,7 +86,18 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 // Bind Server
-app.listen(PORT, () => {
-  console.log(`🚀 AgriScore AI API Server running on port ${PORT}`);
-  console.log(`🔗 REST API Root available at: http://localhost:${PORT}/api`);
-});
+// app.listen(PORT, () => {
+//   console.log(`🚀 AgriScore AI API Server running on port ${PORT}`);
+//   console.log(`🔗 REST API Root available at: http://localhost:${PORT}/api`);
+// });
+
+// Start server locally
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => {
+    console.log(`🚀 AgriScore AI API Server running on port ${PORT}`);
+    console.log(`🔗 REST API Root available at: http://localhost:${PORT}/api`);
+  });
+}
+
+// Export Express app for Vercel
+module.exports = app;
