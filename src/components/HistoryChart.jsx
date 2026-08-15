@@ -45,7 +45,7 @@ export default function HistoryChart({ history, user, documents, lang }) {
               </div>
               <button
                 type="button"
-                onClick={() => downloadReport(item, user, documents, lang)}
+                onClick={() => downloadReport(item, documents, lang)}
                 title={t.downloadPdf || "Download"}
                 style={{ border: "none", background: "transparent", cursor: "pointer", padding: 6, display: "flex", alignItems: "center", color: forest }}
               >

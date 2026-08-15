@@ -2,6 +2,7 @@ const express = require("express");
 const { body, validationResult } = require("express-validator");
 const farmerController = require("../controllers/farmerController");
 const scoreController = require("../controllers/scoreController");
+const auth = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -54,12 +55,23 @@ const scoreValidationRules = [
 ];
 
 const farmerValidationRules = [
-  ...scoreValidationRules,
   body("farmerName")
     .trim()
     .notEmpty()
     .withMessage("Farmer name is required."),
+  body("village")
+    .trim()
+    .notEmpty()
+    .withMessage("Village/Location is required."),
+  body("cropType")
+    .trim()
+    .notEmpty()
+    .withMessage("Crop Type is required."),
+  body("farmSize")
+    .isFloat({ min: 0 })
+    .withMessage("Farm Size must be a positive number."),
   body("phoneNumber")
+    .optional({ checkFalsy: true })
     .trim()
     .matches(/^\+?[\d\s-]{10,15}$/)
     .withMessage("Phone number must be a valid format between 10 to 15 digits.")
@@ -68,11 +80,11 @@ const farmerValidationRules = [
 // Score API
 router.post("/score", scoreValidationRules, validateRequest, scoreController.calculateLoanScore);
 
-// Farmer REST CRUD APIs
-router.post("/farmers", farmerValidationRules, validateRequest, farmerController.createFarmer);
-router.get("/farmers", farmerController.getAllFarmers);
-router.get("/farmers/:id", farmerController.getFarmerById);
-router.put("/farmers/:id", farmerController.updateFarmer);
-router.delete("/farmers/:id", farmerController.deleteFarmer);
+// Farmer REST CRUD APIs - secured with Firebase Auth middleware
+router.post("/farmers", auth, farmerValidationRules, validateRequest, farmerController.createFarmer);
+router.get("/farmers", auth, farmerController.getAllFarmers);
+router.get("/farmers/:id", auth, farmerController.getFarmerById);
+router.put("/farmers/:id", auth, farmerController.updateFarmer);
+router.delete("/farmers/:id", auth, farmerController.deleteFarmer);
 
 module.exports = router;

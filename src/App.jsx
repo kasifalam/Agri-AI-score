@@ -6,6 +6,8 @@ import {
   Volume2, Mic, FileText, Download, CheckSquare, Sparkles, Thermometer, Info, Menu, X, Trash2, ClipboardCheck
 } from "lucide-react";
 import axios from "axios";
+import { initializeApp } from "firebase/app";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from "firebase/auth";
 
 // Services & Utils
 import { STRINGS, CROPS_I18N, IRRIGATION_I18N, getLocalizedCrop, getLocalizedLocation } from "./services/translationService";
@@ -149,14 +151,28 @@ function AuthScreen({ onAuth, lang, setLang, fontScale }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!email || !password || (mode === "register" && !name)) {
       setError(lang === "hi" ? "कृपया सभी फ़ील्ड भरें।" : lang === "bn" ? "দয়া করে সব ঘর পূরণ করুন।" : "Please fill all fields.");
       return;
     }
     setError("");
-    onAuth({ name: name || email.split("@")[0], email });
+    try {
+      await onAuth({ name, email, password, mode });
+    } catch (err) {
+      let msg = err.message;
+      if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password" || err.code === "auth/user-not-found") {
+        msg = lang === "hi" ? "अमान्य ईमेल या पासवर्ड।" : "Invalid email or password.";
+      } else if (err.code === "auth/email-already-in-use") {
+        msg = lang === "hi" ? "यह ईमेल पहले से उपयोग में है।" : "Email is already registered.";
+      } else if (err.code === "auth/weak-password") {
+        msg = lang === "hi" ? "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।" : "Password should be at least 6 characters.";
+      } else if (err.code === "auth/invalid-email") {
+        msg = lang === "hi" ? "अमान्य ईमेल प्रारूप।" : "Invalid email format.";
+      }
+      setError(msg);
+    }
   };
 
   return (
@@ -903,7 +919,7 @@ function ResultView({ result, onBack, onSave, lang, documents }) {
 }
 
 // ---------- Assessment History ----------
-function HistoryView({ history, goCheck, lang, documents, onDeleteHistory }) {
+function HistoryView({ history, goCheck, lang, documents, onDeleteHistory, user }) {
   const t = STRINGS[lang] || STRINGS.en;
   const ink = "#1B2B20";
   const forest = "#1F3D2B";
@@ -951,7 +967,7 @@ function HistoryView({ history, goCheck, lang, documents, onDeleteHistory }) {
                     {riskLabel(h.risk)} {t.risk}
                   </div>
                   <IconButton
-                    onClick={() => downloadReport(h, documents, lang)}
+                    onClick={() => downloadReport(h, user, documents, lang)}
                     title={t.downloadPdf || "Download PDF"}
                     style={{ border: "1px solid #E4E0D4" }}
                   >
@@ -1008,6 +1024,7 @@ export default function App() {
   });
 
   const API_BASE = "http://localhost:5000/api";
+  const [firebaseAuth, setFirebaseAuth] = useState(null);
 
   // Previous checks loaded from localstorage / backend
   const [history, setHistory] = useState([]);
@@ -1019,89 +1036,7 @@ export default function App() {
     return saved ? parseFloat(saved) : 1.0;
   });
 
-  const loadSeedHistory = () => {
-    const saved = localStorage.getItem("agriscore_history");
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved));
-        return;
-      } catch (e) {}
-    }
-    const mockHistory = [
-      {
-        score: 78,
-        risk: "Low",
-        location: "Bathinda, Punjab",
-        crop: "Cotton",
-        land: "5",
-        harvest: "85",
-        irrigation: "drip",
-        farmerName: "",
-        farmerEmail: "",
-        irrObj: { id: "drip", label: "Drip irrigation", bonus: 12 },
-        rainfall: 72,
-        soilQuality: 82,
-        ndvi: 76,
-        yieldScore: 80,
-        date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        reasons: [],
-        suggestions: [],
-        weatherData: {
-          success: true,
-          temp: 29.5,
-          humidity: 65,
-          rain: 12.0,
-          locationName: "Bathinda, Punjab",
-          source: "Historical Sensors"
-        }
-      },
-      {
-        score: 55,
-        risk: "Medium",
-        location: "Bathinda, Punjab",
-        crop: "Wheat",
-        land: "5",
-        harvest: "55",
-        irrigation: "canal",
-        farmerName: "",
-        farmerEmail: "",
-        irrObj: { id: "canal", label: "Canal / Tube well", bonus: 0 },
-        rainfall: 48,
-        soilQuality: 56,
-        ndvi: 60,
-        yieldScore: 40,
-        date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        reasons: [],
-        suggestions: [],
-        weatherData: {
-          success: true,
-          temp: 34.0,
-          humidity: 45,
-          rain: 0,
-          locationName: "Bathinda, Punjab",
-          source: "Historical Sensors"
-        }
-      }
-    ];
 
-    mockHistory.forEach(item => {
-      const computed = computeScore({
-        location: item.location,
-        crop: item.crop,
-        land: item.land,
-        harvest: item.harvest,
-        irrigation: item.irrigation,
-        tickedCount: 3,
-        weather: item.weatherData,
-        lang
-      });
-      item.reasons = computed.reasons;
-      item.suggestions = computed.suggestions;
-    });
-
-    setHistory(mockHistory);
-    localStorage.setItem("agriscore_history", JSON.stringify(mockHistory));
-  };
 
   // Sync state modifications to localstorage
   useEffect(() => {
@@ -1112,23 +1047,67 @@ export default function App() {
     localStorage.setItem("agriscore_font_scale", fontScale.toString());
   }, [fontScale]);
 
-  // Load history from Firestore backend on mount
+  // Initialize Firebase Auth dynamically from backend config
+  useEffect(() => {
+    const initFirebase = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/config/firebase`);
+        const { config } = res.data;
+        if (config && config.apiKey) {
+          const app = initializeApp(config);
+          const auth = getAuth(app);
+          setFirebaseAuth(auth);
+          
+          // Setup auth state change listener to sync user session
+          onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) {
+              setUser({
+                name: currentUser.displayName || currentUser.email.split("@")[0],
+                email: currentUser.email,
+                uid: currentUser.uid
+              });
+            } else {
+              setUser(null);
+              setHistory([]);
+            }
+          });
+        } else {
+          console.warn("⚠️ Firebase Web API Key is missing. Live authentication is disabled.");
+        }
+      } catch (err) {
+        console.error("Failed to fetch Firebase config or initialize auth:", err);
+      }
+    };
+    initFirebase();
+  }, []);
+
+  const getAuthHeaders = async () => {
+    if (firebaseAuth && firebaseAuth.currentUser) {
+      const token = await firebaseAuth.currentUser.getIdToken(true);
+      return { headers: { Authorization: `Bearer ${token}` } };
+    }
+    return {};
+  };
+
+  // Load history from Firestore backend when user is logged in
   useEffect(() => {
     const fetchHistory = async () => {
+      if (!user) return;
       try {
-        const res = await axios.get(`${API_BASE}/farmers`);
+        const headers = await getAuthHeaders();
+        const res = await axios.get(`${API_BASE}/farmers`, headers);
         if (res.data && res.data.success && res.data.data.length > 0) {
           setHistory(res.data.data);
         } else {
-          loadSeedHistory();
+          setHistory([]);
         }
       } catch (err) {
-        console.warn("Failed to fetch history from backend. Loading local seed data.", err);
-        loadSeedHistory();
+        console.warn("Failed to fetch history from backend.", err);
+        setHistory([]);
       }
     };
     fetchHistory();
-  }, [lang]);
+  }, [user, firebaseAuth, lang]);
 
   const handleCheckSubmit = async (form) => {
     const tickedCount = Object.values(documents).filter(Boolean).length;
@@ -1200,7 +1179,8 @@ export default function App() {
           date: pendingResult.date
         };
 
-        const res = await axios.post(`${API_BASE}/farmers`, payload);
+        const headers = await getAuthHeaders();
+        const res = await axios.post(`${API_BASE}/farmers`, payload, headers);
         if (res.data && res.data.success) {
           setHistory((h) => [res.data.data, ...h]);
         }
@@ -1218,7 +1198,8 @@ export default function App() {
 
     if (id && typeof id === "string" && id.length > 5) {
       try {
-        const res = await axios.delete(`${API_BASE}/farmers/${id}`);
+        const headers = await getAuthHeaders();
+        const res = await axios.delete(`${API_BASE}/farmers/${id}`, headers);
         if (res.data && res.data.success) {
           setHistory((h) => h.filter((item) => item.id !== id));
         }
@@ -1231,13 +1212,41 @@ export default function App() {
     }
   };
 
+  const handleAuth = async ({ name, email, password, mode }) => {
+    if (!firebaseAuth) {
+      throw new Error(lang === "hi" 
+        ? "फायरबेस प्रमाणीकरण कुंजी (Web API Key) गायब है। कृपया backend/.env में FIREBASE_WEB_API_KEY कॉन्फ़िगर करें।" 
+        : "Firebase Web API Key is missing. Please configure FIREBASE_WEB_API_KEY inside backend/.env.");
+    }
+    if (mode === "login") {
+      await signInWithEmailAndPassword(firebaseAuth, email, password);
+    } else {
+      const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+      await updateProfile(userCredential.user, { displayName: name });
+      setUser({
+        name: name,
+        email: email,
+        uid: userCredential.user.uid
+      });
+    }
+  };
+
+  const handleLogout = async () => {
+    if (firebaseAuth) {
+      await signOut(firebaseAuth);
+    }
+    setUser(null);
+    setHistory([]);
+    setPage("dashboard");
+  };
+
   const handleSaveApiKey = (key) => {
     setApiKey(key);
     localStorage.setItem("agriscore_openweather_key", key);
   };
 
   if (!user) {
-    return <AuthScreen onAuth={setUser} lang={lang} setLang={setLang} fontScale={fontScale} />;
+    return <AuthScreen onAuth={handleAuth} lang={lang} setLang={setLang} fontScale={fontScale} />;
   }
 
   const bg = "#F7F5EF";
@@ -1270,7 +1279,7 @@ export default function App() {
         page={page === "result" ? "check" : page}
         setPage={(p) => { setPage(p); setMobileOpen(false); }}
         user={user}
-        onLogout={() => setUser(null)}
+        onLogout={handleLogout}
         lang={lang}
         setLang={setLang}
         fontScale={fontScale}
@@ -1313,6 +1322,7 @@ export default function App() {
           lang={lang}
           documents={documents}
           onDeleteHistory={deleteHistory}
+          user={user}
         />
       )}
     </div>

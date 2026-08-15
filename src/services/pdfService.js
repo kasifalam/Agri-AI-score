@@ -30,7 +30,12 @@ const pdfTranslations = {
     footerHackathon: "AgriScore AI · Developed for BRAINWAVE 2026 National Hackathon",
     strong: "Strong baseline. Recommended for fast-track credit approval.",
     moderate: "Moderate credit metrics. Approvals subject to water management verification.",
-    weak: "High production volatility. Credit enhancement required."
+    weak: "High production volatility. Credit enhancement required.",
+    lblPhone: "Phone Number:",
+    lblDistrictState: "District / State:",
+    lblReqAmount: "Required Loan Amount:",
+    lblIncome: "Annual Income:",
+    lblDebtCredit: "Debt & Credit History:"
   },  hi: {
     reportTitle: "लोन सहायता रिपोर्ट",
     secProfile: "1. किसान और खेत का ब्योरा",
@@ -57,7 +62,12 @@ const pdfTranslations = {
     footerHackathon: "एग्रीस्कोर एआई — किसानों के लिए आसान लोन सहायक ऐप",
     strong: "आपके खेत की स्थिति बहुत अच्छी है। बैंक से आसानी से लोन मिलने की पूरी संभावना है।",
     moderate: "खेत की स्थिति ठीक-ठाक है। अगर आप पानी देने का पक्का साधन और जरूरी कागज़ तैयार कर लें, तो लोन मिल जाएगा।",
-    weak: "अभी लोन मिलने में थोड़ी मुश्किल हो सकती है। लोन स्कोर बढ़ाने के लिए नीचे दी गई सलाहों को देखें।"
+    weak: "अभी लोन मिलने में थोड़ी मुश्किल हो सकती है। लोन स्कोर बढ़ाने के लिए नीचे दी गई सलाहों को देखें।",
+    lblPhone: "फ़ोन नंबर:",
+    lblDistrictState: "जिला / राज्य:",
+    lblReqAmount: "लोन की आवश्यकता:",
+    lblIncome: "वार्षिक आय:",
+    lblDebtCredit: "ऋण और क्रेडिट इतिहास:"
   },
   bn: {
     reportTitle: "কৃষক ঋণ এবং ঋণ যোগ্যতা মূল্যায়ন রিপোর্ট",
@@ -374,8 +384,21 @@ const pdfTranslations = {
  * Generated fully in the selected language using custom-embedded TrueType Unicode fonts (Noto Sans)
  * to ensure perfect rendering across Windows, Chrome, Edge, Adobe Acrobat, and mobile.
  */
-export async function downloadReport(item, documents, lang) {
+export async function downloadReport(item, documents, langParam) {
   try {
+    let resolvedDocs = documents;
+    let resolvedLang = langParam;
+    let resolvedUser = null;
+
+    // Handle case where user is passed as the second argument
+    if (arguments.length === 4 || (documents && typeof documents === "object" && (documents.name !== undefined || documents.email !== undefined))) {
+      resolvedUser = documents;
+      resolvedDocs = arguments[2];
+      resolvedLang = arguments[3];
+    }
+    resolvedLang = resolvedLang || "en";
+    const lang = resolvedLang; // Shadow parameter for consistency
+
     const t = STRINGS[lang] || STRINGS.en;
     const p = pdfTranslations[lang] || pdfTranslations.en;
 
@@ -451,18 +474,43 @@ export async function downloadReport(item, documents, lang) {
       doc.setFont("helvetica");
     }
 
-    // 3. Use pre-calculated backend scores if available, otherwise fallback to local calculation
-    const tickedCount = Object.values(documents).filter(Boolean).length;
-    const finalResult = (item.score !== undefined && item.risk !== undefined && item.reasons !== undefined)
-      ? item
+    // Normalize item keys (handles both current assessment result and historical DB record)
+    const normalizedItem = {
+      ...item,
+      crop: item.crop || item.cropType || "",
+      location: item.location || item.village || item.district || "",
+      land: (item.land !== undefined && item.land !== null && item.land !== "") ? item.land : item.farmSize,
+      weatherData: item.weatherData || item.weather || null,
+      suggestions: item.suggestions || [],
+      recommendations: item.recommendations || [],
+      reasons: item.reasons || [],
+    };
+
+    // Resolve documents list to use (prefers historical document checklist if available)
+    let docsObj = resolvedDocs || {};
+    if (normalizedItem.uploadedDocuments && Array.isArray(normalizedItem.uploadedDocuments)) {
+      docsObj = {
+        land: normalizedItem.uploadedDocuments.includes("land"),
+        id: normalizedItem.uploadedDocuments.includes("id"),
+        nodues: normalizedItem.uploadedDocuments.includes("nodues"),
+        soil: normalizedItem.uploadedDocuments.includes("soil"),
+        bank: normalizedItem.uploadedDocuments.includes("bank")
+      };
+    } else if (normalizedItem.uploadedDocuments && typeof normalizedItem.uploadedDocuments === "object" && normalizedItem.uploadedDocuments !== null) {
+      docsObj = normalizedItem.uploadedDocuments;
+    }
+
+    const tickedCount = Object.values(docsObj).filter(Boolean).length;
+    const finalResult = (normalizedItem.score !== undefined && normalizedItem.risk !== undefined && normalizedItem.reasons && normalizedItem.reasons.length > 0)
+      ? normalizedItem
       : computeScore({
-          location: item.location,
-          crop: item.crop,
-          land: item.land,
-          harvest: item.harvest,
-          irrigation: item.irrObj?.id || item.irrigation,
+          location: normalizedItem.location,
+          crop: normalizedItem.crop,
+          land: normalizedItem.land,
+          harvest: normalizedItem.harvest,
+          irrigation: normalizedItem.irrObj?.id || normalizedItem.irrigation,
           tickedCount,
-          weather: item.weatherData || { success: false },
+          weather: normalizedItem.weatherData || { success: false },
           lang
         });
 
@@ -508,7 +556,7 @@ export async function downloadReport(item, documents, lang) {
     doc.line(15, y + 2, 195, y + 2);
 
     // Language-aware fallback for missing values
-    const na = "जानकारी उपलब्ध नहीं";
+    const na = lang === "hi" ? "जानकारी उपलब्ध नहीं" : "N/A";
 
     // Helper: guarantee a non-empty string or fallback
     const safeStr = (v) => {
@@ -520,35 +568,71 @@ export async function downloadReport(item, documents, lang) {
     // Helper: truncate to char count to avoid overflow (no splitTextToSize which can fail silently)
     const trunc = (str, maxChars) => str.length > maxChars ? str.slice(0, maxChars - 1) + "…" : str;
 
+    // Helper: format financial values or return na
+    const formatCurrency = (val) => {
+      if (val === null || val === undefined || String(val).trim() === "") return na;
+      const num = parseFloat(val);
+      if (isNaN(num)) return na;
+      const symbol = lang === "hi" ? "₹" : "Rs.";
+      return `${symbol} ${num.toLocaleString()}`;
+    };
+
+    // Helper: draw profile value in helvetica if it contains Latin characters to prevent blank rendering in NotoSans
+    const drawProfileVal = (txt, x, y) => {
+      const hasLatinOrNum = /[a-zA-Z0-9@.]/.test(txt);
+      if (hasLatinOrNum && lang !== "en") {
+        doc.setFont("helvetica");
+        doc.text(txt, x, y);
+        doc.setFont(fontName || "helvetica");
+      } else {
+        doc.text(txt, x, y);
+      }
+    };
+
     // --- Resolve all field values upfront ---
-    const farmerName    = safeStr(item.farmerName);
-    const farmerEmail   = safeStr(item.farmerEmail);
-    const rawLoc        = item.location || item.village || item.district || "";
+    const farmerName    = safeStr(normalizedItem.farmerName || resolvedUser?.name);
+    const farmerEmail   = safeStr(normalizedItem.farmerEmail || normalizedItem.email || resolvedUser?.email);
+    const rawLoc        = normalizedItem.location;
     const farmerLoc     = safeStr(getLocalizedLocation(rawLoc, lang) || rawLoc);
-    const farmerCrop    = safeStr(getLocalizedCrop(item.crop, lang) || item.crop);
-    const farmerLand    = item.land || item.farmSize ? `${item.land || item.farmSize} ${t.acres}` : na;
-    const farmerHarvest = item.harvest ? `${item.harvest} ${t.quintals || "quintals"}` : na;
+    const farmerCrop    = safeStr(getLocalizedCrop(normalizedItem.crop, lang) || normalizedItem.crop);
+    const farmerLand    = (normalizedItem.land !== undefined && normalizedItem.land !== null && String(normalizedItem.land).trim() !== "") ? `${normalizedItem.land} ${t.acres}` : na;
+    const farmerHarvest = (normalizedItem.harvest !== undefined && normalizedItem.harvest !== null && String(normalizedItem.harvest).trim() !== "") ? `${normalizedItem.harvest} ${t.quintals || "quintals"}` : na;
 
     const irrListCurrent = IRRIGATION_I18N[lang] || IRRIGATION_I18N.en;
     const irrObjCurrent  = irrListCurrent.find(
-      (i) => i.id === (item.irrObj?.id || item.irrigation)
+      (i) => i.id === (normalizedItem.irrObj?.id || normalizedItem.irrigation)
     ) || irrListCurrent[2];
     const farmerIrr = safeStr(irrObjCurrent?.label);
 
     // Resolve financial parameters
-    const farmerPhone = safeStr(item.phoneNumber);
-    const farmerDistrict = safeStr(item.district || item.location);
-    const farmerState = safeStr(item.state);
-    const farmerIncome = item.annualIncome !== undefined ? `Rs. ${item.annualIncome}` : na;
-    const farmerLoans = item.existingLoans !== undefined ? `Rs. ${item.existingLoans}` : na;
-    const farmerCredit = safeStr(item.creditHistory);
-    const farmerReqAmount = item.requiredLoanAmount !== undefined ? `Rs. ${item.requiredLoanAmount}` : na;
+    const farmerPhone = safeStr(normalizedItem.phoneNumber);
+    const farmerDistrict = safeStr(normalizedItem.district || normalizedItem.location);
+    const farmerState = safeStr(normalizedItem.state);
+    const farmerIncome = formatCurrency(normalizedItem.annualIncome);
+    const farmerLoans = formatCurrency(normalizedItem.existingLoans);
+
+    // Credit history translation mapping
+    const creditMap = {
+      en: { good: "Good", medium: "Medium", poor: "Poor" },
+      hi: { good: "अच्छा (कोई चूक नहीं)", medium: "मध्यम", poor: "कमज़ोर (डिफ़ॉल्ट जोखिम)" }
+    };
+    const resolvedCreditMap = creditMap[lang] || creditMap.en;
+    const farmerCredit = safeStr(resolvedCreditMap[normalizedItem.creditHistory?.toLowerCase()] || normalizedItem.creditHistory);
+
+    const farmerReqAmount = formatCurrency(normalizedItem.requiredLoanAmount);
+
+    // Resolve labels dynamically with localized fallbacks
+    const lblPhone = p.lblPhone || "Phone Number:";
+    const lblDistrictState = p.lblDistrictState || "District / State:";
+    const lblReqAmount = p.lblReqAmount || "Required Loan Amount:";
+    const lblIncome = p.lblIncome || "Annual Income:";
+    const lblDebtCredit = p.lblDebtCredit || "Debt & Credit History:";
 
     // Diagnostic: confirm values in browser console before drawing
     console.log("[AgriScore PDF] Profile field values:", {
       farmerName, farmerEmail, farmerLoc, farmerCrop,
       farmerLand, farmerHarvest, farmerIrr, farmerPhone, farmerIncome,
-      rawUser: user, rawItem: { location: item.location, crop: item.crop, land: item.land, harvest: item.harvest }
+      rawItem: { location: normalizedItem.location, crop: normalizedItem.crop, land: normalizedItem.land, harvest: normalizedItem.harvest }
     });
 
     // Column x-positions
@@ -559,23 +643,23 @@ export async function downloadReport(item, documents, lang) {
 
     // Row 1: Farmer Name | Phone Number
     doc.text(p.lblFarmerName,           COL1_LBL, y);
-    doc.text(trunc(farmerName, 30),     COL1_VAL, y);
-    doc.text("Phone Number:",           COL2_LBL, y);
-    doc.text(trunc(farmerPhone, 28),    COL2_VAL, y);
+    drawProfileVal(trunc(farmerName, 30), COL1_VAL, y);
+    doc.text(lblPhone,                  COL2_LBL, y);
+    drawProfileVal(trunc(farmerPhone, 28), COL2_VAL, y);
 
     y += 5.5;
     // Row 2: Email | Crop
     doc.text(p.lblEmail,                COL1_LBL, y);
-    doc.text(trunc(farmerEmail, 30),    COL1_VAL, y);
+    drawProfileVal(trunc(farmerEmail, 30), COL1_VAL, y);
     doc.text(p.lblCrop,                 COL2_LBL, y);
     doc.text(trunc(farmerCrop, 28),     COL2_VAL, y);
 
     y += 5.5;
     // Row 3: Village/Location | District/State
     doc.text(p.lblLocation,             COL1_LBL, y);
-    doc.text(trunc(farmerLoc, 30),      COL1_VAL, y);
-    doc.text("District / State:",       COL2_LBL, y);
-    doc.text(trunc(`${farmerDistrict}, ${farmerState}`, 28), COL2_VAL, y);
+    drawProfileVal(trunc(farmerLoc, 30), COL1_VAL, y);
+    doc.text(lblDistrictState,          COL2_LBL, y);
+    drawProfileVal(trunc(`${farmerDistrict}, ${farmerState}`, 28), COL2_VAL, y);
 
     y += 5.5;
     // Row 4: Land Area | Irrigation
@@ -588,14 +672,14 @@ export async function downloadReport(item, documents, lang) {
     // Row 5: Harvest | Required Loan
     doc.text(p.lblHarvest,              COL1_LBL, y);
     doc.text(trunc(farmerHarvest, 30),  COL1_VAL, y);
-    doc.text("Required Loan Amount:",   COL2_LBL, y);
+    doc.text(lblReqAmount,              COL2_LBL, y);
     doc.text(trunc(farmerReqAmount, 28), COL2_VAL, y);
 
     y += 5.5;
     // Row 6: Annual Income | Debt & Credit
-    doc.text("Annual Income:",          COL1_LBL, y);
+    doc.text(lblIncome,                 COL1_LBL, y);
     doc.text(trunc(farmerIncome, 30),   COL1_VAL, y);
-    doc.text("Debt & Credit History:",  COL2_LBL, y);
+    doc.text(lblDebtCredit,             COL2_LBL, y);
     doc.text(trunc(`${farmerLoans} (${farmerCredit})`, 28), COL2_VAL, y);
 
     // --- Section 2: Credit Score Summary ---
@@ -619,9 +703,10 @@ export async function downloadReport(item, documents, lang) {
     doc.text(`${finalResult.score} / 100`, 20, y + 16);
 
     // Risk card
+    const riskVal = finalResult.risk || "High";
     let riskColor = [59, 122, 87]; // Low (Green)
-    if (finalResult.risk === "Medium") riskColor = [201, 138, 43]; // Medium (Orange)
-    if (finalResult.risk === "High") riskColor = [180, 72, 59]; // High (Red)
+    if (riskVal === "Medium") riskColor = [201, 138, 43]; // Medium (Orange)
+    if (riskVal === "High") riskColor = [180, 72, 59]; // High (Red)
 
     doc.setFillColor(riskColor[0], riskColor[1], riskColor[2]);
     doc.rect(88, y, 107, 24, "F");
@@ -631,8 +716,8 @@ export async function downloadReport(item, documents, lang) {
     doc.text(p.lblSuitability, 94, y + 6);
     
     doc.setFontSize(12.5);
-    const riskTrans = t[finalResult.risk.toLowerCase()] || finalResult.risk;
-    doc.text(`${riskTrans.toUpperCase()} ${t.risk.toUpperCase()}`, 94, y + 14);
+    const riskTrans = t[riskVal.toLowerCase()] || riskVal;
+    doc.text(`${riskTrans.toUpperCase()} ${(t.risk || "Risk").toUpperCase()}`, 94, y + 14);
 
     doc.setFontSize(7.5);
     const statusNote = finalResult.score >= 72
@@ -643,22 +728,22 @@ export async function downloadReport(item, documents, lang) {
     doc.text(statusNote, 94, y + 20);
 
     // --- Weather parameters ---
-    if (item.weatherData) {
+    if (normalizedItem.weatherData) {
       y += 28;
       doc.setFillColor(rLight[0], rLight[1], rLight[2]);
       doc.rect(15, y, 180, 10, "F");
       doc.setFontSize(7.5);
       doc.setTextColor(rForest[0], rForest[1], rForest[2]);
-      const wSource = item.weatherData.source || "Weather Grid";
+      const wSource = normalizedItem.weatherData.source || "Weather Grid";
       const tempLabel = t.temp || "Temperature";
       const humidityLabel = t.humidity || "Humidity";
       const rainLabel = t.rain || "Rain";
-      const weatherText = `${p.lblWeatherTelemetry} (${wSource}): ${p.region}: ${item.weatherData.locationName || item.location} | ${tempLabel}: ${item.weatherData.temp}°C | ${humidityLabel}: ${item.weatherData.humidity}% | ${rainLabel}: ${item.weatherData.rain}mm`;
+      const weatherText = `${p.lblWeatherTelemetry} (${wSource}): ${p.region}: ${normalizedItem.weatherData.locationName || normalizedItem.location} | ${tempLabel}: ${normalizedItem.weatherData.temp}°C | ${humidityLabel}: ${normalizedItem.weatherData.humidity}% | ${rainLabel}: ${normalizedItem.weatherData.rain}mm`;
       doc.text(weatherText, 18, y + 6.5);
     }
 
     // --- Section 3: Explainable AI Diagnoses ---
-    y += (item.weatherData ? 16 : 30);
+    y += (normalizedItem.weatherData ? 16 : 30);
     doc.setTextColor(rInk[0], rInk[1], rInk[2]);
     doc.setFontSize(10.5);
     doc.setFillColor(31, 61, 43); // forest green accent bar
@@ -668,8 +753,24 @@ export async function downloadReport(item, documents, lang) {
 
     y += 8;
     doc.setFontSize(8);
-    finalResult.reasons.forEach((reason) => {
-      if (reason.ok) {
+    const reasonsToRender = Array.isArray(finalResult.reasons) ? finalResult.reasons : [];
+    reasonsToRender.forEach((reason) => {
+      if (!reason) return;
+      
+      let isOk = false;
+      let cleanText = "";
+      
+      if (typeof reason === "object") {
+        isOk = !!reason.ok;
+        cleanText = reason.text || "";
+      } else {
+        isOk = true;
+        cleanText = String(reason);
+      }
+      
+      if (!cleanText) return;
+
+      if (isOk) {
         doc.setTextColor(59, 122, 87);
         doc.text(p.lblPass, 15, y);
       } else {
@@ -678,10 +779,12 @@ export async function downloadReport(item, documents, lang) {
       }
       doc.setTextColor(rInk[0], rInk[1], rInk[2]);
       
-      const cleanText = reason.text;
-      const textLines = doc.splitTextToSize(cleanText, 168);
-      doc.text(textLines, 29, y);
-      y += 5.5 * textLines.length;
+      const textLines = doc.splitTextToSize(cleanText, 153);
+      textLines.forEach((line) => {
+        doc.text(line, 42, y);
+        y += 5.5; // clean line height for Hindi text wrapping
+      });
+      y += 2.0; // padding between diagnostic items
     });
 
     // --- Section 4: Bank Document Verification Checklist ---
@@ -703,7 +806,7 @@ export async function downloadReport(item, documents, lang) {
     ];
 
     docsList.forEach((docItem) => {
-      const isTicked = documents[docItem.key];
+      const isTicked = docsObj[docItem.key];
       if (isTicked) {
         doc.setTextColor(59, 122, 87);
         doc.text(p.lblVerified, 15, y);
@@ -727,28 +830,30 @@ export async function downloadReport(item, documents, lang) {
     y += 8;
     doc.setFontSize(8);
     
-    const suggestionsToRender = (finalResult.recommendations && finalResult.recommendations.length > 0)
-      ? [...finalResult.suggestions, ...finalResult.recommendations]
-      : finalResult.suggestions;
+    const finalSuggestions = finalResult.suggestions || [];
+    const finalRecommendations = finalResult.recommendations || [];
+    const suggestionsToRender = finalRecommendations.length > 0
+      ? [...finalSuggestions, ...finalRecommendations]
+      : finalSuggestions;
 
     suggestionsToRender.forEach((sug, idx) => {
       const bulletText = `${idx + 1}. ${sug}`;
       const textLines = doc.splitTextToSize(bulletText, 175);
-      doc.text(textLines, 15, y);
-      y += 5 * textLines.length;
+      textLines.forEach((line) => {
+        doc.text(line, 15, y);
+        y += 5.5; // clean line height for Hindi text wrapping
+      });
+      y += 2.0; // padding between roadmap items
     });
 
-    // --- Footer metadata ---
-    doc.setFontSize(7);
-    doc.setTextColor(120, 120, 110);
-    doc.text(p.disclaimer, 15, 282);
-    doc.text(p.footerHackathon, 15, 286);
+
 
     // Save report
-    const sanitizedCrop = item.crop.replace(/[^a-zA-Z\u0900-\u097F\u0980-\u09FF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0B00-\u0B7F\u09A0-\u09FD\u0600-\u06FF]/g, "");
-    doc.save(`AgriScore_Report_${sanitizedCrop}_${lang}.pdf`);
+    const cropName = normalizedItem.crop || "Report";
+    const sanitizedCrop = cropName.replace(/[^a-zA-Z\u0900-\u097F\u0980-\u09FF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0B00-\u0B7F\u09A0-\u09FD\u0600-\u06FF]/g, "");
+    doc.save(`AgriScore_Report_${sanitizedCrop || "Report"}_${lang}.pdf`);
   } catch (err) {
     console.error("PDF generation failed", err);
-    alert("Could not generate PDF report. Check browser console logs.");
+    alert("Could not generate PDF report: " + err.message + "\n\nStack: " + (err.stack || "No stack trace available."));
   }
 }

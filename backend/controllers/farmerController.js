@@ -37,6 +37,7 @@ exports.createFarmer = async (req, res, next) => {
     };
 
     const newFarmer = {
+      userId: req.user.uid, // Track document ownership by authenticated user's Firebase UID
       farmerName: farmerName || "Unknown Farmer",
       phoneNumber: phoneNumber || "",
       village: village || "",
@@ -81,7 +82,7 @@ exports.createFarmer = async (req, res, next) => {
  */
 exports.getAllFarmers = async (req, res, next) => {
   try {
-    const snapshot = await db.collection("farmers").get();
+    const snapshot = await db.collection("farmers").where("userId", "==", req.user.uid).get();
     const farmers = [];
     
     snapshot.docs.forEach(doc => {
@@ -120,6 +121,14 @@ exports.getFarmerById = async (req, res, next) => {
       });
     }
 
+    // Enforce data ownership block
+    if (doc.data().userId !== req.user.uid) {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. This record belongs to another user."
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: { id: doc.id, ...doc.data() }
@@ -143,6 +152,14 @@ exports.updateFarmer = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: `Farmer with ID ${id} not found.`
+      });
+    }
+
+    // Enforce data ownership block
+    if (doc.data().userId !== req.user.uid) {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. This record belongs to another user."
       });
     }
 
@@ -176,6 +193,14 @@ exports.deleteFarmer = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: `Farmer with ID ${id} not found.`
+      });
+    }
+
+    // Enforce data ownership block
+    if (doc.data().userId !== req.user.uid) {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden. This record belongs to another user."
       });
     }
 

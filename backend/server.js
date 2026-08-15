@@ -47,6 +47,23 @@ app.use(express.urlencoded({ extended: true }));
 // 5. API Routes
 app.use("/api", farmerRoutes);
 
+// Firebase client config endpoint for dynamic frontend authentication initialization
+app.get("/api/config/firebase", (req, res) => {
+  const clean = (val) => (val || "").replace(/["']/g, "").replace(/,$/, "").trim();
+  const cleanApiKey = clean(process.env.FIREBASE_WEB_API_KEY);
+  const cleanProjectId = clean(process.env.FIREBASE_PROJECT_ID) || "agriscore-ai-cf54b";
+
+  res.status(200).json({
+    success: true,
+    config: {
+      apiKey: cleanApiKey,
+      authDomain: `${cleanProjectId}.firebaseapp.com`,
+      projectId: cleanProjectId,
+      storageBucket: `${cleanProjectId}.appspot.com`
+    }
+  });
+});
+
 // 6. Root status check
 app.get("/", (req, res) => {
   res.status(200).json({
