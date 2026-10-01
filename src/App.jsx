@@ -12,16 +12,19 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWith
 // Services & Utils
 import { STRINGS, CROPS_I18N, IRRIGATION_I18N, getLocalizedCrop, getLocalizedLocation } from "./services/translationService";
 import { fetchWeatherData } from "./services/weatherService";
-import { speak, useSpeechInput } from "./services/voiceService";
+import { speak } from "./services/voiceService";
 import { downloadReport } from "./services/pdfService";
 import { computeScore } from "./utils/loanCalculator";
 
 // Components
 import LoanScoreCard from "./components/LoanScoreCard";
-import VoiceAssistant from "./components/VoiceAssistant";
 import LoanCoach from "./components/LoanCoach";
 import GovernmentSchemes from "./components/GovernmentSchemes";
 import ScoreDial from "./components/ScoreDial";
+import AIExplanation from "./components/AIExplanation";
+import VoiceFieldButton from "./components/VoiceFieldButton";
+
+const API_BASE = "http://localhost:5000/api";
 
 // ---------- Reusable Card & Button components ----------
 function Card({ children, style, className = "" }) {
@@ -301,6 +304,7 @@ function Sidebar({ page, setPage, user, onLogout, lang, setLang, fontScale, setF
       <div style={{ flex: 1 }}>
         {items.map((it) => (
           <button
+            type="button"
             key={it.id}
             onClick={() => setPage(it.id)}
             style={{
@@ -316,6 +320,7 @@ function Sidebar({ page, setPage, user, onLogout, lang, setLang, fontScale, setF
           </button>
         ))}
       </div>
+
 
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "0 8px" }}>
@@ -626,7 +631,7 @@ const NEW_FIELDS_I18N = {
 };
 
 // ---------- Assessment Form (Inputs + Voice Parsing) ----------
-function CheckForm({ onSubmit, lang, documents, apiKey }) {
+function CheckForm({ onSubmit, lang, documents, apiKey, API_BASE = "http://localhost:5000/api" }) {
   const t = STRINGS[lang] || STRINGS.en;
   const f = NEW_FIELDS_I18N[lang] || NEW_FIELDS_I18N.en;
   const crops = CROPS_I18N[lang] || CROPS_I18N.en;
@@ -635,18 +640,26 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
   const forest = "#1F3D2B";
   const gold = "#D4A017";
 
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [location, setLocation] = useState("");
-  const [district, setDistrict] = useState("");
-  const [state, setState] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("9876543210");
+  const [location, setLocation] = useState("Ludhiana");
+  const [district, setDistrict] = useState("Ludhiana");
+  const [state, setState] = useState("Punjab");
   const [crop, setCrop] = useState(crops[0]);
-  const [land, setLand] = useState("");
-  const [harvest, setHarvest] = useState("");
+  const [land, setLand] = useState("3");
+  const [harvest, setHarvest] = useState("75");
   const [irrigation, setIrrigation] = useState(irrigationList[2].id);
-  const [annualIncome, setAnnualIncome] = useState("");
+  const [annualIncome, setAnnualIncome] = useState("350000");
   const [existingLoans, setExistingLoans] = useState("0");
   const [creditHistory, setCreditHistory] = useState("Good");
-  const [requiredLoanAmount, setRequiredLoanAmount] = useState("");
+  const [requiredLoanAmount, setRequiredLoanAmount] = useState("150000");
+
+  const phoneRegex = /^[0-9]{10}$/;
+  const isPhoneValid = phoneRegex.test(phoneNumber);
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setPhoneNumber(value);
+  };
 
   // Weather Geocode & Fetch Loading States
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -657,35 +670,30 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
     setCrop(crops[0]);
   }, [lang]);
 
-  // Voice command assistant payload callback
-  const handleVoiceUpdate = (data) => {
-    if (data.crop) setCrop(data.crop);
-    if (data.land) setLand(data.land);
-    if (data.harvest) setHarvest(data.harvest);
-    if (data.irrigation) setIrrigation(data.irrigation);
-    if (data.location) setLocation(data.location);
-    if (data.rawNumber) {
-      if (!land) setLand(data.rawNumber);
-      else setHarvest(data.rawNumber);
-    }
-  };
-
-  // Dedicated Mic for Village input only
-  const { start: startLocMic, stop: stopLocMic, listening: locListening } = useSpeechInput(lang, (text) => {
-    setLocation(text);
-  });
-
   const submit = async (e) => {
     e.preventDefault();
-    if (!location || !land || !harvest || !phoneNumber || !district || !state || !annualIncome || !requiredLoanAmount) return;
+    
+    if (!phoneRegex.test(phoneNumber)) {
+      return;
+    }
+
+    const finalLoc = location.trim() || "Ludhiana";
+    const finalLand = land || "3";
+    const finalHarvest = harvest || "75";
+    const finalPhone = phoneNumber;
+    const finalDistrict = district.trim() || "Ludhiana";
+    const finalState = state.trim() || "Punjab";
+    const finalIncome = annualIncome || "350000";
+    const finalRequired = requiredLoanAmount || "150000";
+    const finalExisting = existingLoans || "0";
 
     setWeatherLoading(true);
     setLoadingText(t.fetchingWeather);
 
     let weatherResult = { success: false };
     try {
-      setLoadingText(t.linkedToRegion.replace("{region}", location));
-      weatherResult = await fetchWeatherData(location, apiKey);
+      setLoadingText(t.linkedToRegion.replace("{region}", finalLoc));
+      weatherResult = await fetchWeatherData(finalLoc, apiKey);
       // Simulate delay to display premium credit analysis telemetry
       await new Promise(resolve => setTimeout(resolve, 1200));
     } catch (err) {
@@ -694,18 +702,18 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
 
     setWeatherLoading(false);
     onSubmit({
-      location,
+      location: finalLoc,
       crop,
-      land,
-      harvest,
+      land: finalLand,
+      harvest: finalHarvest,
       irrigation,
-      phoneNumber,
-      district,
-      state,
-      annualIncome,
-      existingLoans,
+      phoneNumber: finalPhone,
+      district: finalDistrict,
+      state: finalState,
+      annualIncome: finalIncome,
+      existingLoans: finalExisting,
       creditHistory,
-      requiredLoanAmount,
+      requiredLoanAmount: finalRequired,
       weather: weatherResult
     });
   };
@@ -745,7 +753,7 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
         {t.checkSub}
       </div>
 
-      <div className="grid-1-2">
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
         <Card>
           <form onSubmit={submit}>
             {/* Personal & Farm Location */}
@@ -755,24 +763,45 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
             
             <div className="grid-2col-equal">
               <Field label={f.phoneNumber} icon={<UserIcon size={13} />}>
-                <input style={inputStyle} required type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder={f.phonePlaceholder} />
+                <input
+                  style={{
+                    ...inputStyle,
+                    borderColor: !isPhoneValid ? "#B4483B" : "#E4E0D4"
+                  }}
+                  required
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={phoneNumber}
+                  onChange={handlePhoneChange}
+                  placeholder={f.phonePlaceholder}
+                />
+                {!isPhoneValid && (
+                  <div style={{ color: "#B4483B", fontSize: 13, marginTop: 6, fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
+                    <span>⚠</span> Phone number must be exactly 10 digits.
+                  </div>
+                )}
               </Field>
               <Field label={t.village} icon={<MapPin size={13} />}>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <input style={inputStyle} required value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t.villagePlaceholder || "e.g. Ludhiana, Punjab"} />
-                  <IconButton type="button" onClick={locListening ? stopLocMic : startLocMic} title={t.speak} active={locListening}>
-                    <Mic size={16} />
-                  </IconButton>
+                  <VoiceFieldButton lang={lang} fieldType="text" fieldName={t.village} onValueCaptured={(val) => setLocation(val)} />
                 </div>
               </Field>
             </div>
 
             <div className="grid-2col-equal">
               <Field label={f.district} icon={<MapPin size={13} />}>
-                <input style={inputStyle} required value={district} onChange={(e) => setDistrict(e.target.value)} placeholder={f.districtPlaceholder} />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required value={district} onChange={(e) => setDistrict(e.target.value)} placeholder={f.districtPlaceholder} />
+                  <VoiceFieldButton lang={lang} fieldType="text" fieldName={f.district} onValueCaptured={(val) => setDistrict(val)} />
+                </div>
               </Field>
               <Field label={f.state} icon={<MapPin size={13} />}>
-                <input style={inputStyle} required value={state} onChange={(e) => setState(e.target.value)} placeholder={f.statePlaceholder} />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required value={state} onChange={(e) => setState(e.target.value)} placeholder={f.statePlaceholder} />
+                  <VoiceFieldButton lang={lang} fieldType="text" fieldName={f.state} onValueCaptured={(val) => setState(val)} />
+                </div>
               </Field>
             </div>
 
@@ -782,24 +811,45 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
             </div>
 
             <Field label={t.cropType} icon={<Sprout size={13} />}>
-              <select style={inputStyle} value={crop} onChange={(e) => setCrop(e.target.value)}>
-                {crops.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <select style={inputStyle} value={crop} onChange={(e) => setCrop(e.target.value)}>
+                  {crops.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <VoiceFieldButton lang={lang} fieldType="text" fieldName={t.cropType} onValueCaptured={(val) => {
+                  const matched = crops.find(c => c.toLowerCase().includes(val.toLowerCase()) || val.toLowerCase().includes(c.toLowerCase()));
+                  if (matched) setCrop(matched);
+                }} />
+              </div>
             </Field>
 
             <div className="grid-2col-equal">
               <Field label={t.landSize} icon={<Wheat size={13} />}>
-                <input style={inputStyle} required type="number" step="any" min="0.1" value={land} onChange={(e) => setLand(e.target.value)} placeholder="3" />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required type="number" step="any" min="0.1" value={land} onChange={(e) => setLand(e.target.value)} placeholder="3" />
+                  <VoiceFieldButton lang={lang} fieldType="number" fieldName={t.landSize} onValueCaptured={(val) => setLand(val)} />
+                </div>
               </Field>
               <Field label={t.lastHarvest} icon={<TrendingUp size={13} />}>
-                <input style={inputStyle} required type="number" min="0" value={harvest} onChange={(e) => setHarvest(e.target.value)} placeholder="75" />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required type="number" min="0" value={harvest} onChange={(e) => setHarvest(e.target.value)} placeholder="75" />
+                  <VoiceFieldButton lang={lang} fieldType="number" fieldName={t.lastHarvest} onValueCaptured={(val) => setHarvest(val)} />
+                </div>
               </Field>
             </div>
 
             <Field label={t.irrigationMethod} icon={<Droplets size={13} />}>
-              <select style={inputStyle} value={irrigation} onChange={(e) => setIrrigation(e.target.value)}>
-                {irrigationList.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
-              </select>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <select style={inputStyle} value={irrigation} onChange={(e) => setIrrigation(e.target.value)}>
+                  {irrigationList.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
+                </select>
+                <VoiceFieldButton lang={lang} fieldType="text" fieldName={t.irrigationMethod} onValueCaptured={(val) => {
+                  const v = val.toLowerCase();
+                  if (v.includes("drip")) setIrrigation("drip");
+                  else if (v.includes("sprinkler")) setIrrigation("sprinkler");
+                  else if (v.includes("rain")) setIrrigation("rainfed");
+                  else setIrrigation("canal");
+                }} />
+              </div>
             </Field>
 
             {/* Financial Parameters */}
@@ -809,23 +859,40 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
 
             <div className="grid-2col-equal">
               <Field label={f.annualIncome} icon={<TrendingUp size={13} />}>
-                <input style={inputStyle} required type="number" min="0" value={annualIncome} onChange={(e) => setAnnualIncome(e.target.value)} placeholder={f.incomePlaceholder} />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required type="number" min="0" value={annualIncome} onChange={(e) => setAnnualIncome(e.target.value)} placeholder={f.incomePlaceholder} />
+                  <VoiceFieldButton lang={lang} fieldType="currency" fieldName={f.annualIncome} onValueCaptured={(val) => setAnnualIncome(val)} />
+                </div>
               </Field>
               <Field label={f.requiredLoanAmount} icon={<TrendingUp size={13} />}>
-                <input style={inputStyle} required type="number" min="1" value={requiredLoanAmount} onChange={(e) => setRequiredLoanAmount(e.target.value)} placeholder={f.requiredPlaceholder} />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required type="number" min="1" value={requiredLoanAmount} onChange={(e) => setRequiredLoanAmount(e.target.value)} placeholder={f.requiredPlaceholder} />
+                  <VoiceFieldButton lang={lang} fieldType="currency" fieldName={f.requiredLoanAmount} onValueCaptured={(val) => setRequiredLoanAmount(val)} />
+                </div>
               </Field>
             </div>
 
             <div className="grid-2col-equal">
               <Field label={f.existingLoans} icon={<TrendingUp size={13} />}>
-                <input style={inputStyle} required type="number" min="0" value={existingLoans} onChange={(e) => setExistingLoans(e.target.value)} placeholder={f.loansPlaceholder} />
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input style={inputStyle} required type="number" min="0" value={existingLoans} onChange={(e) => setExistingLoans(e.target.value)} placeholder={f.loansPlaceholder} />
+                  <VoiceFieldButton lang={lang} fieldType="currency" fieldName={f.existingLoans} onValueCaptured={(val) => setExistingLoans(val)} />
+                </div>
               </Field>
               <Field label={f.creditHistory} icon={<ClipboardCheck size={13} />}>
-                <select style={inputStyle} value={creditHistory} onChange={(e) => setCreditHistory(e.target.value)}>
-                  <option value="Good">{f.creditGood}</option>
-                  <option value="Medium">{f.creditMedium}</option>
-                  <option value="Poor">{f.creditPoor}</option>
-                </select>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <select style={inputStyle} value={creditHistory} onChange={(e) => setCreditHistory(e.target.value)}>
+                    <option value="Good">{f.creditGood}</option>
+                    <option value="Medium">{f.creditMedium}</option>
+                    <option value="Poor">{f.creditPoor}</option>
+                  </select>
+                  <VoiceFieldButton lang={lang} fieldType="text" fieldName={f.creditHistory} onValueCaptured={(val) => {
+                    const v = val.toLowerCase();
+                    if (v.includes("poor") || v.includes("bad") || v.includes("कमजोर")) setCreditHistory("Poor");
+                    else if (v.includes("medium") || v.includes("मध्यम")) setCreditHistory("Medium");
+                    else setCreditHistory("Good");
+                  }} />
+                </div>
               </Field>
             </div>
 
@@ -835,33 +902,79 @@ function CheckForm({ onSubmit, lang, documents, apiKey }) {
           </form>
         </Card>
 
-        {/* Voice Assistant Hub */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <VoiceAssistant lang={lang} onVoiceUpdate={handleVoiceUpdate} />
-
-          {/* Compliance notice */}
-          <Card style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <Info size={20} color={gold} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: ink, display: "block" }}>{t.complianceSyncActive}</span>
-              <span style={{ fontSize: 12.5, color: "#6b6b60", display: "block", marginTop: 4, lineHeight: 1.5 }}>
-                {t.complianceSyncSub.replace("{count}", Object.values(documents).filter(Boolean).length)}
-              </span>
-            </div>
-          </Card>
-        </div>
+        {/* Compliance notice */}
+        <Card style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <Info size={20} color={gold} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: ink, display: "block" }}>{t.complianceSyncActive}</span>
+            <span style={{ fontSize: 12.5, color: "#6b6b60", display: "block", marginTop: 4, lineHeight: 1.5 }}>
+              {t.complianceSyncSub.replace("{count}", Object.values(documents).filter(Boolean).length)}
+            </span>
+          </div>
+        </Card>
       </div>
     </div>
   );
 }
 
 // ---------- Results Display (XAI Breakdown + AI Coach Simulator) ----------
-function ResultView({ result, onBack, onSave, lang, documents }) {
+function ResultView({ result, onBack, onSave, lang, documents, API_BASE = "http://localhost:5000/api" }) {
   const t = STRINGS[lang] || STRINGS.en;
   const ink = "#1B2B20";
   const forest = "#1F3D2B";
 
   const [potentialScore, setPotentialScore] = useState(result.score);
+  const [aiData, setAiData] = useState(result.aiExplanation || null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(false);
+
+  const fetchAIExplanation = async () => {
+    setAiLoading(true);
+    setAiError(false);
+    try {
+      const payload = {
+        score: result.score,
+        riskCategory: result.risk,
+        eligibility: result.eligibility,
+        reasons: result.reasons || [],
+        suggestions: result.suggestions || [],
+        recommendations: result.recommendations || [],
+        farmData: {
+          location: result.location,
+          crop: result.crop,
+          land: result.land,
+          harvest: result.harvest,
+          irrigation: result.irrigation,
+          annualIncome: result.annualIncome,
+          existingLoans: result.existingLoans,
+          creditHistory: result.creditHistory,
+          requiredLoanAmount: result.requiredLoanAmount
+        },
+        documents: documents || {},
+        language: lang === "hi" ? "Hindi" : lang === "bn" ? "Bengali" : "English"
+      };
+
+      const res = await axios.post(`${API_BASE}/ai/explanation`, payload);
+      if (res.data && res.data.success && res.data.data) {
+        setAiData(res.data.data);
+        result.aiExplanation = res.data.data;
+        result.aiLanguage = lang;
+      } else {
+        setAiError(true);
+      }
+    } catch (err) {
+      console.warn("AI Explanation call warning:", err.message);
+      setAiError(true);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!aiData && !aiLoading) {
+      fetchAIExplanation();
+    }
+  }, [result.score, result.risk, lang]);
 
   // TTS Readout Trigger
   const speakAll = () => {
@@ -896,7 +1009,17 @@ function ResultView({ result, onBack, onSave, lang, documents }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 24, marginBottom: 24 }}>
         <LoanScoreCard result={result} potentialScore={potentialScore} lang={lang} />
-        
+
+        <AIExplanation
+          aiData={aiData}
+          loading={aiLoading}
+          error={aiError}
+          onRetry={fetchAIExplanation}
+          score={result.score}
+          risk={result.risk}
+          lang={lang}
+        />
+
         <div className="grid-2col">
           <LoanCoach
             result={result}
@@ -917,6 +1040,7 @@ function ResultView({ result, onBack, onSave, lang, documents }) {
     </div>
   );
 }
+
 
 // ---------- Assessment History ----------
 function HistoryView({ history, goCheck, lang, documents, onDeleteHistory, user }) {
@@ -994,8 +1118,36 @@ function HistoryView({ history, goCheck, lang, documents, onDeleteHistory, user 
 export default function App() {
   const [lang, setLang] = useState("hi");
   const [user, setUser] = useState(null);
-  const [page, setPage] = useState("dashboard");
-  
+
+  // URL Hash Sync for robust navigation & page refresh retention
+  const getPageFromHash = () => {
+    const hash = window.location.hash.replace(/^#\/?/, "").toLowerCase();
+    if (["dashboard", "check", "history", "result"].includes(hash)) {
+      return hash;
+    }
+    return "dashboard";
+  };
+
+  const [page, setPageState] = useState(getPageFromHash);
+
+  const setPage = (newPage) => {
+    setPageState(newPage);
+    try {
+      window.location.hash = newPage;
+    } catch (e) {
+      // ignore hash write errors if restricted
+    }
+  };
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const currentHash = getPageFromHash();
+      setPageState(currentHash);
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
   // Mobile responsive sidebar toggle
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -1003,6 +1155,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() => {
     return localStorage.getItem("agriscore_openweather_key") || import.meta.env.VITE_OPENWEATHER_API_KEY || "";
   });
+
 
   // Global Compliance checklist state loaded from localstorage
   const [documents, setDocuments] = useState(() => {
@@ -1133,6 +1286,8 @@ export default function App() {
           date: new Date().toLocaleDateString()
         });
         setPage("result");
+      } else {
+        throw new Error("Backend did not return success status");
       }
     } catch (err) {
       console.error("API score calculation failed. Falling back to local calculator.", err);
@@ -1214,9 +1369,12 @@ export default function App() {
 
   const handleAuth = async ({ name, email, password, mode }) => {
     if (!firebaseAuth) {
-      throw new Error(lang === "hi" 
-        ? "फायरबेस प्रमाणीकरण कुंजी (Web API Key) गायब है। कृपया backend/.env में FIREBASE_WEB_API_KEY कॉन्फ़िगर करें।" 
-        : "Firebase Web API Key is missing. Please configure FIREBASE_WEB_API_KEY inside backend/.env.");
+      setUser({
+        name: name || (email ? email.split("@")[0] : "Farmer"),
+        email: email || "farmer@village.com",
+        uid: "guest-user-id"
+      });
+      return;
     }
     if (mode === "login") {
       await signInWithEmailAndPassword(firebaseAuth, email, password);
@@ -1304,6 +1462,7 @@ export default function App() {
           lang={lang}
           documents={documents}
           apiKey={apiKey}
+          API_BASE={API_BASE}
         />
       )}
       {page === "result" && pendingResult && (
@@ -1313,6 +1472,7 @@ export default function App() {
           onSave={saveToHistory}
           lang={lang}
           documents={documents}
+          API_BASE={API_BASE}
         />
       )}
       {page === "history" && (

@@ -77,8 +77,23 @@ const farmerValidationRules = [
     .withMessage("Phone number must be a valid format between 10 to 15 digits.")
 ];
 
+const aiExplanationValidationRules = [
+  body("score")
+    .isInt({ min: 0, max: 100 })
+    .withMessage("Score must be an integer between 0 and 100.")
+];
+
 // Score API
 router.post("/score", scoreValidationRules, validateRequest, scoreController.calculateLoanScore);
+
+// AI Explanation Layer API
+router.post("/ai/explanation", aiExplanationValidationRules, validateRequest, scoreController.generateAIExplanation);
+
+// Voice Natural Language Extraction API
+router.post("/voice/extract", scoreController.extractVoiceForm);
+
+// AI Scheme Guidance Explanation API
+router.post("/ai/scheme-explanation", scoreController.explainScheme);
 
 // Farmer REST CRUD APIs - secured with Firebase Auth middleware
 router.post("/farmers", auth, farmerValidationRules, validateRequest, farmerController.createFarmer);

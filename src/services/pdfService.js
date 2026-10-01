@@ -846,6 +846,57 @@ export async function downloadReport(item, documents, langParam) {
       y += 2.0; // padding between roadmap items
     });
 
+    // --- Section 6: AI-Powered Assessment Explanation (If available) ---
+    if (finalResult.aiExplanation) {
+      const ai = finalResult.aiExplanation;
+      if (y > 220) {
+        doc.addPage();
+        y = 20;
+      } else {
+        y += 4;
+      }
+
+      doc.setFontSize(10.5);
+      doc.setFillColor(31, 61, 43); // forest green accent bar
+      doc.rect(15, y - 3.8, 2, 4.5, "F");
+      const secAiTitle = lang === "hi" ? "6. एआई व्याख्या और मार्गदर्शन" : lang === "bn" ? "৬. এআই ব্যাখ্যা ও নির্দেশনা" : "6. AI-POWERED ASSESSMENT EXPLANATION & ROADMAP";
+      doc.text(secAiTitle, 19, y);
+      doc.line(15, y + 2, 195, y + 2);
+
+      y += 8;
+      doc.setFontSize(8.5);
+
+      if (ai.summary) {
+        const sumLines = doc.splitTextToSize(`Summary: ${ai.summary}`, 175);
+        sumLines.forEach((line) => {
+          doc.text(line, 15, y);
+          y += 5.5;
+        });
+        y += 2;
+      }
+
+      if (ai.scoreExplanation) {
+        const expLines = doc.splitTextToSize(`Why this score? ${ai.scoreExplanation}`, 175);
+        expLines.forEach((line) => {
+          doc.text(line, 15, y);
+          y += 5.5;
+        });
+        y += 2;
+      }
+
+      if (Array.isArray(ai.priorityActions) && ai.priorityActions.length > 0) {
+        doc.text("Priority Actions:", 15, y);
+        y += 5.5;
+        ai.priorityActions.forEach((act) => {
+          const actLine = `• [${act.priority || "Action"}]: ${act.action}`;
+          const actLines = doc.splitTextToSize(actLine, 170);
+          actLines.forEach((line) => {
+            doc.text(line, 18, y);
+            y += 5.5;
+          });
+        });
+      }
+    }
 
 
     // Save report

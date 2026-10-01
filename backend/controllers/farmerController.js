@@ -28,7 +28,9 @@ exports.createFarmer = async (req, res, next) => {
       harvest,
       irrigation,
       weather,
-      date
+      date,
+      aiExplanation,
+      aiLanguage
     } = req.body;
 
     const parseNum = (v) => {
@@ -60,8 +62,11 @@ exports.createFarmer = async (req, res, next) => {
       irrigation: irrigation || "canal",
       weather: weather || null,
       date: date || new Date().toLocaleDateString(),
+      aiExplanation: aiExplanation || null,
+      aiLanguage: aiLanguage || "English",
       timestamp: new Date().toISOString()
     };
+
 
     const docRef = await db.collection("farmers").add(newFarmer);
     
